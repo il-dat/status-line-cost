@@ -36,7 +36,7 @@ mode that fits.
 This repo doubles as a plugin marketplace. Add it and install:
 
 ```
-/plugin marketplace add il/status-line-cost
+/plugin marketplace add il-dat/status-line-cost
 /plugin install cost-statusline@status-line-cost
 ```
 

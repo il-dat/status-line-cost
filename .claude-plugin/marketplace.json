@@ -1,11 +1,11 @@
 {
-  "name": "status-line-cost",
+  "name": "infinitelambda",
   "owner": {
     "name": "Dat Nguyen"
   },
   "plugins": [
     {
-      "name": "cost-statusline",
+      "name": "oh-my-statusline",
       "source": "./",
       "description": "Status line showing model | context % | session cost | duration | lines changed, read straight from the Claude Code payload."
     }

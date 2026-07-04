@@ -1,5 +1,5 @@
 {
-  "name": "cost-statusline",
+  "name": "oh-my-statusline",
   "description": "Status line showing model | context % | session cost | duration | lines changed, read straight from the Claude Code payload.",
   "version": "1.0.0",
   "author": {

@@ -1,15 +1,8 @@
-# status-line-cost
+# oh-my-statusline
 
 A Claude Code status line that renders `model | context % | $cost | duration | lines`,
 reading every value straight from the JSON payload Claude Code pipes to it on each
-refresh — no transcript parsing, no rate table, no provider API call. The session
-cost is the one Claude Code already computes client-side (`cost.total_cost_usd`),
-so the script just formats it rather than re-deriving it.
-
-## What it shows
-
-On every status-line refresh Claude Code pipes a JSON blob to
-`scripts/claude_cost.sh` on stdin, and the script prints two colored lines:
+refresh.
 
 ![alt text](docs/assets/img/status-line-demo.png)
 
@@ -39,8 +32,6 @@ branch, not the main checkout's.
   renders; it's just less thorough. Install `jq` if you want the full experience
   (`brew install jq`, `apt install jq`, etc.).
 
-There's nothing to `pip install` and no interpreter to manage — it's a shell script.
-
 ## Install
 
 Enabling the plugin ships the renderer script; you then wire the status line into
@@ -52,15 +43,12 @@ mode that fits.
 This repo doubles as a plugin marketplace. Add it and install:
 
 ```
-/plugin marketplace add il-dat/status-line-cost
-/plugin install cost-statusline@status-line-cost
+/plugin marketplace add il-dat/oh-my-statusline
+/plugin install oh-my-statusline@infinitelambda
 ```
 
-A marketplace-installed plugin lands in Claude Code's plugin cache, so reference
-its bundled script through **`${CLAUDE_PLUGIN_ROOT}`** — the plugin's own install
-directory — never a hardcoded cache path (that path changes on every update).
-
-### Alternative: declarative install (settings.json)
+<details>
+<summary><strong>Alternative: declarative install (settings.json)</strong></summary>
 
 For scripted, containerized, or team-provisioned setups where you can't run
 interactive slash commands, register the marketplace and enable the plugin
@@ -72,16 +60,16 @@ marketplace alone won't turn the plugin on.
 ```json
 {
   "extraKnownMarketplaces": {
-    "status-line-cost": {
+    "infinitelambda": {
       "source": {
         "source": "github",
-        "repo": "il-dat/status-line-cost",
+        "repo": "il-dat/oh-my-statusline",
         "ref": "1.0.0"
       }
     }
   },
   "enabledPlugins": {
-    "cost-statusline@status-line-cost": true
+    "oh-my-statusline@infinitelambda": true
   }
 }
 ```
@@ -91,6 +79,8 @@ deliberately rather than tracking `main`. Drop it to follow the default branch.
 Note that a **marketplace** source takes `ref` (branch or tag) only — commit-SHA
 pinning is a *plugin*-source feature, and here the plugin ships from this same
 repo, versioned through `plugin.json`'s `"version": "1.0.0"`.
+
+</details>
 
 ### Wire up the status line
 
@@ -103,7 +93,7 @@ appropriate `settings.json`:
 // user settings (~/.claude/settings.json)
 "statusLine": {
   "type": "command",
-  "command": "\"$HOME/.claude/plugins/marketplaces/status-line-cost/scripts/claude_cost.sh\""
+  "command": "\"$HOME/.claude/plugins/marketplaces/infinitelambda/scripts/claude_cost.sh\""
 }
 ```
 

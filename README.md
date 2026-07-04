@@ -117,13 +117,12 @@ appropriate `settings.json`:
 // user settings (~/.claude/settings.json)
 "statusLine": {
   "type": "command",
-  "command": "\"${CLAUDE_PLUGIN_ROOT}/scripts/claude_cost.sh\""
+  "command": "\"$HOME/.claude/plugins/marketplaces/status-line-cost/scripts/claude_cost.sh\""
 }
 ```
 
-`${CLAUDE_PLUGIN_ROOT}` resolves to the plugin's install dir — a documented
-`statusLine` substitution, so the path stays correct across updates. The status
-line lights up on the next interaction.
+That's where a marketplace-installed plugin lands its files. The status line
+lights up on the next interaction.
 
 ## How it works
 

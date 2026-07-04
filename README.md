@@ -1,29 +1,59 @@
 # status-line-cost
 
-A Claude Code status line that renders `model | in tokens $ | out tokens $ | total $`,
-with the cost computed **locally** from the token counts already sitting in the
-session transcript — no provider API call, no surprise network hop while you're
-mid-thought.
+A Claude Code status line that renders `model | context % | $cost | duration | lines`,
+reading every value straight from the JSON payload Claude Code pipes to it on each
+refresh — no transcript parsing, no rate table, no provider API call. The session
+cost is the one Claude Code already computes client-side (`cost.total_cost_usd`),
+so the script just formats it rather than re-deriving it.
+
+## Table of Contents
+
+- [What it shows](#what-it-shows)
+- [Prerequisites](#prerequisites)
+- [Install](#install)
+  - [From GitHub (marketplace)](#from-github-marketplace)
+  - [Alternative: declarative install (settings.json)](#alternative-declarative-install-settingsjson)
+  - [Wire up the status line](#wire-up-the-status-line)
+- [How it works](#how-it-works)
+- [Customizing](#customizing)
 
 ## What it shows
 
-On every status-line refresh Claude Code pipes a JSON blob (`session_id`,
-`transcript_path`, `model`, `cwd`) to `scripts/claude_cost.py` on stdin. The
-script tallies every `message.usage` block in the transcript, applies the
-per-model rates (base input, cache-write 1.25x/2x, cache-read 0.1x, output), and
-prints a single colored line.
+On every status-line refresh Claude Code pipes a JSON blob to
+`scripts/claude_cost.sh` on stdin, and the script prints two colored lines:
+
+```
+Opus 4.8 | 73% ctx | $1.23 | 3m 5s | +156 -23
+📁 status-line-cost | 🌿 main
+```
+
+Each segment is pulled directly from the payload (the branch has one exception):
+
+| Segment            | Source field                                          |
+| ------------------ | ----------------------------------------------------- |
+| model              | `.model.display_name` (falls back to `.model.id`)     |
+| `73% ctx`          | `.context_window.used_percentage`                     |
+| `$1.23`            | `.cost.total_cost_usd`                                |
+| `3m 5s`            | `.cost.total_duration_ms`                             |
+| `+156 -23`         | `.cost.total_lines_added` / `.cost.total_lines_removed` (hidden when both are 0) |
+| 📁 folder          | leaf of `.workspace.current_dir`                      |
+| 🌿 branch          | `.worktree.branch` / `.workspace.git_worktree` if present, else `git branch --show-current` in the folder (omitted outside a repo) |
+
+The context percentage is color-coded: green under 70%, yellow 70–89%, red at 90%+
+— so you notice you're running low on room before Claude does. The branch prefers
+what Claude Code already reports for a worktree session and only shells out to
+`git` when the payload doesn't carry one, so a `--worktree` session shows *its*
+branch, not the main checkout's.
 
 ## Prerequisites
 
-- **A way to run Python 3 — either `python3` on your `PATH`, or `uvx`.** The
-  renderer is **stdlib-only** (`json`, `os`, `sys`, `pathlib`, `datetime` —
-  pricing is plain JSON), so there are no dependencies to install either way.
-  - **`python3`** — any reasonably modern CPython runs it directly. No uv, no
-    virtualenv, no `pip install`.
-  - **`uvx`** — if you manage Python through [uv](https://docs.astral.sh/uv/) and
-    don't keep a system `python3` around, `uvx python@3 <script>` fetches a managed
-    interpreter on demand and runs it (see [wire-up](#wire-up-the-status-line) for
-    the exact command). Still zero dependencies — uv just supplies the interpreter.
+- **Bash** (any modern version; ships on macOS and Linux).
+- **`jq`** for JSON parsing — the supported path. If `jq` isn't on your `PATH` the
+  script quietly falls back to a `grep`/`cut` parser so the status line still
+  renders; it's just less thorough. Install `jq` if you want the full experience
+  (`brew install jq`, `apt install jq`, etc.).
+
+There's nothing to `pip install` and no interpreter to manage — it's a shell script.
 
 ## Install
 
@@ -44,6 +74,38 @@ A marketplace-installed plugin lands in Claude Code's plugin cache, so reference
 its bundled script through **`${CLAUDE_PLUGIN_ROOT}`** — the plugin's own install
 directory — never a hardcoded cache path (that path changes on every update).
 
+### Alternative: declarative install (settings.json)
+
+For scripted, containerized, or team-provisioned setups where you can't run
+interactive slash commands, register the marketplace and enable the plugin
+directly in `settings.json`. This is the config-file equivalent of the two
+commands above — `extraKnownMarketplaces` mirrors `/plugin marketplace add`, and
+`enabledPlugins` mirrors `/plugin install`. You need **both**: registering the
+marketplace alone won't turn the plugin on.
+
+```json
+{
+  "extraKnownMarketplaces": {
+    "status-line-cost": {
+      "source": {
+        "source": "github",
+        "repo": "il-dat/status-line-cost",
+        "ref": "1.0.0"
+      }
+    }
+  },
+  "enabledPlugins": {
+    "cost-statusline@status-line-cost": true
+  }
+}
+```
+
+The `ref` pins the marketplace to the `1.0.0` tag, so you opt into new releases
+deliberately rather than tracking `main`. Drop it to follow the default branch.
+Note that a **marketplace** source takes `ref` (branch or tag) only — commit-SHA
+pinning is a *plugin*-source feature, and here the plugin ships from this same
+repo, versioned through `plugin.json`'s `"version": "1.0.0"`.
+
 ### Wire up the status line
 
 A plugin **cannot** ship the main `statusLine` — Claude Code applies only the
@@ -55,103 +117,44 @@ appropriate `settings.json`:
 // user settings (~/.claude/settings.json)
 "statusLine": {
   "type": "command",
-  "command": "python3 \"${CLAUDE_PLUGIN_ROOT}/scripts/claude_cost.py\""
+  "command": "\"${CLAUDE_PLUGIN_ROOT}/scripts/claude_cost.sh\""
 }
 ```
 
 `${CLAUDE_PLUGIN_ROOT}` resolves to the plugin's install dir — a documented
 `statusLine` substitution, so the path stays correct across updates. The status
-line lights up on the next session.
+line lights up on the next interaction.
 
-No system `python3`? Swap the leading `python3` for `uvx python@3` — uv fetches a
-managed interpreter and runs the same script (the renderer needs no packages):
+## How it works
 
-```json
-"statusLine": {
-  "type": "command",
-  "command": "uvx python@3 \"${CLAUDE_PLUGIN_ROOT}/scripts/claude_cost.py\""
-}
+Claude Code sends [JSON session data](https://code.claude.com/docs/en/statusline#available-data)
+to the script on stdin after each assistant message (debounced at 300ms). The
+script reads it, extracts a handful of fields with a single `jq` pass, formats
+them, and writes one colored line to stdout. That's the whole contract — whatever
+lands on stdout becomes the status line.
+
+Because every value comes from the payload, there's nothing to keep in sync: when
+Claude Code updates its cost estimate, the number here updates with it. The cost
+is the same client-side estimate Claude Code shows elsewhere, so it may differ
+slightly from your actual bill — that caveat is upstream's, not ours.
+
+You can test the script the same way Claude Code invokes it:
+
+```bash
+echo '{"model":{"display_name":"Opus"},"context_window":{"used_percentage":25},"cost":{"total_cost_usd":0.42,"total_duration_ms":90000}}' | ./scripts/claude_cost.sh
 ```
 
-## Pricing
+## Customizing
 
-Rates live in `llm_price_tag.json`, matched by substring against the session model
-id with a `default` fallback (the `default` entry sits inside `models`). Every
-entry has the **same shape** — a `rates` list of snapshots, newest last, each
-carrying the base per-token rates *and* the cache multipliers together:
+The script is short and self-contained — edit `scripts/claude_cost.sh` directly.
+Common tweaks:
 
-```json
-"claude-opus-4-8": {
-  "rates": [{
-    "effective_date": "2026-07-01",
-    "input": 5.0, "output": 25.0,
-    "cache_write_5m": 1.25, "cache_write_1h": 2.0, "cache_read": 0.1
-  }]
-}
-```
+- **Add fields**: the payload also carries `.context_window.remaining_percentage`,
+  `.rate_limits.*`, `.workspace.repo.*`, git worktree info, and more. See the
+  [full field list](https://code.claude.com/docs/en/statusline#available-data).
+- **Change the color thresholds**: adjust the `70` / `90` cutoffs in the context
+  section.
+- **Go multi-line**: `print` more than one line and each becomes its own row.
 
-`input`/`output` are first-party Claude API list prices, per Anthropic's published
-pricing ([§ Model pricing](https://platform.claude.com/docs/en/about-claude/pricing)).
-
-### Rate schedules
-
-Because the rate is a list, a model that reprices on a known date carries both
-rates and switches on its own — the renderer picks the snapshot whose
-`effective_date` is the latest one not in the future. Sonnet 5 is the live case:
-introductory `$2`/`$10` through 2026-08-31, then standard `$3`/`$15` from
-September 1, with no edit when the promo lapses.
-
-```json
-"claude-sonnet-5": {
-  "rates": [
-    {"effective_date": "2026-06-01", "input": 2.0, "output": 10.0, "cache_write_5m": 1.25, "cache_write_1h": 2.0, "cache_read": 0.1},
-    {"effective_date": "2026-09-01", "input": 3.0, "output": 15.0, "cache_write_5m": 1.25, "cache_write_1h": 2.0, "cache_read": 0.1}
-  ]
-}
-```
-
-Stable models keep a one-element list. The `effective_date` doubles as a freshness
-marker: set `$DBDOCS_STATUSLINE_SHOW_DATE` to append `rates <date>` (the active
-model's resolved date) to the status line.
-
-### Cache multipliers
-
-`cache_write_5m`, `cache_write_1h`, and `cache_read` are multipliers on the
-snapshot's base `input` rate, per Anthropic's published prompt-caching pricing —
-5-minute cache write **1.25×**, 1-hour cache write **2×**, cache read (hits &
-refreshes) **0.1×**
-([§ Pricing](https://platform.claude.com/docs/en/build-with-claude/prompt-caching)).
-They live in each rate snapshot alongside `input`/`output`; nothing is hardcoded
-in the renderer, so the JSON is the single source of truth.
-
-### Overriding rates per project
-
-Pricing loads in **layers**, each merging over the previous per model — so a
-project overrides only what it cares about and inherits the rest:
-
-1. **Bundled defaults** — this plugin's `llm_price_tag.json`. Always the base.
-2. **Project-local** — `$CLAUDE_PROJECT_DIR/.claude/llm_price_tag.json` (falls back
-   to `./.claude/llm_price_tag.json` when the env var is unset). Commit this to
-   pin a team's negotiated rates.
-3. **Explicit path** — `$DBDOCS_STATUSLINE_PRICING=/path/to/rates.json`. Wins over
-   both; handy for a one-off experiment without touching committed files.
-
-A project file only needs the entries it changes — to retag Opus and nudge the
-unknown-model fallback:
-
-```json
-{
-  "models": {
-    "claude-opus-4-8": {
-      "rates": [{"effective_date": "2026-07-01", "input": 4.5, "output": 22.5, "cache_write_5m": 1.25, "cache_write_1h": 2.0, "cache_read": 0.1}]
-    },
-    "default": {
-      "rates": [{"effective_date": "2026-07-01", "input": 6.0, "output": 30.0, "cache_write_5m": 1.25, "cache_write_1h": 2.0, "cache_read": 0.1}]
-    }
-  }
-}
-```
-
-Every model you *don't* list keeps its bundled rate. Missing or malformed override
-files are ignored (the bundled defaults still load), so a typo degrades gracefully
-instead of blanking the status line.
+Keep it fast — the script runs on every refresh, so slow work (heavy `git`
+commands, network calls) will make the status line lag.

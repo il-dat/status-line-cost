@@ -7,7 +7,7 @@
     {
       "name": "cost-statusline",
       "source": "./",
-      "description": "Status line showing model | input/output tokens | locally-computed session cost, priced from a bundled per-model rate table."
+      "description": "Status line showing model | context % | session cost | duration | lines changed, read straight from the Claude Code payload."
     }
   ]
 }
